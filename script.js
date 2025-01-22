@@ -124,6 +124,8 @@ for (let i = 0; i < 4; ++i) {
 const delta = 1000;
 const latency = 10;
 
+let msg_group = svg.append ("g");
+
 function createMsgVert (sender, receiver, msg, net_st) {
   if (sender === receiver) return;
 
@@ -132,24 +134,50 @@ function createMsgVert (sender, receiver, msg, net_st) {
       end_cx = coords[links[sender * 4 + receiver][1]][0],
       end_cy = coords[links[sender * 4 + receiver][1]][1];
 
-  const msgCirc = svg.append ("circle")
-                     .attr ("cx", start_cx)
-                     .attr ("cy", start_cy)
-                     .attr ("r", 10)
-                     .attr ("fill", "orange");
+  const msgCirc = msg_group.append ("circle")
+			   .attr ("cx", start_cx)
+			   .attr ("cy", start_cy)
+			   .attr ("r", 10)
+			   .attr ("fill", "orange")
+			   .attr ("T", 0)
+			   .attr ("dst_cx", end_cx)
+			   .attr ("dst_cy", end_cy);
+
+  msgCirc.node ().endFunc = function () {
+    msgCirc.remove ();
+    if (receiver != 3) {
+    let {new_msgs, timer_reset} = net_st.node_states[receiver].handleMsgLoop (msg);
+      for (let i = 0; i < new_msgs.length; ++i) net_st.addMsg (new_msgs[i]);
+      if (timer_reset) { resetTimer (receiver, net_st); }
+    }
+  };
 
   msgCirc.transition ()
          .duration (delta)
+         .ease (d3.easeLinear)
          .attr ("cx", end_cx)
          .attr ("cy", end_cy)
-         .on ("end", function () {
-           msgCirc.remove ();
-           if (receiver != 3) {
-	     let {new_msgs, timer_reset} = net_st.node_states[receiver].handleMsgLoop (msg);
-	     for (let i = 0; i < new_msgs.length; ++i) net_st.addMsg (new_msgs[i]);
-	     if (timer_reset) { resetTimer (receiver, net_st); }
-	   }
-         });
+         .attrTween ("T", function () { return function (t) { return Math.round (t * delta) } })
+         .on ("end", msgCirc.node ().endFunc);
+}
+
+function pauseMsgs () {
+  msg_group.selectAll ("circle").interrupt ();
+}
+
+function resumeMsgs () {
+  msg_group.selectAll ("circle")
+           .interrupt ()
+           .transition ()
+           .ease (d3.easeLinear)
+           .duration (function () { return delta - parseInt (this.getAttribute ("T")) })
+           .attr ("cx", function () { return parseInt (this.getAttribute ("dst_cx")) })
+           .attr ("cy", function () { return parseInt (this.getAttribute ("dst_cy")) })
+           .attrTween ("T", function () {
+		let rem_time = delta - parseInt (this.getAttribute ("T"));
+		return function (t) { return delta - rem_time + Math.round (t * rem_time) }
+	   })
+           .on ("end", function () { this.endFunc() });
 }
 
 /* For each honest node we create an arc representing the timer */
@@ -168,22 +196,55 @@ for (let i = 0; i < 3; ++i) {
 		.attr ("fill", "red")
 		.attr ("transform", "translate(" + arc_centers[i][0] + "," + arc_centers[i][1] + ")")
 		.attr ("d", arc ({ startAngle: 0, endAngle: 2 * Math.PI, innerRadius: 21, outerRadius: 24 }))
+		.attr ("T", 0)
+		.attr ("running", "false")
 	    );
 }
 
 function resetTimer (node, net_st) {
   arcs[node].interrupt ();
+
+  arcs[node].node ().endFunc = function () {
+    arcs[node].attr ("running", "false");
+    let timeout = net_st.node_states[node].doTimeout ();
+    net_st.addMsg (timeout);
+    let {new_msgs, timer_reset} = net_st.node_states[node].handleMsgLoop (timeout);
+    for (let i = 0; i < new_msgs.length; ++i) net_st.addMsg (new_msgs[i]);
+    if (timer_reset) resetTimer (node, net_st);
+  }
+
+  arcs[node].attr ("running", "true");
+
   arcs[node].transition ()
 	    .duration (delta * latency)
 	    .ease (d3.easeLinear)
-	    .attrTween ("d", function (d) { return function (t) { return arc ({ startAngle: 0, endAngle: 2 * Math.PI * (1 - t), innerRadius: 21, outerRadius: 24 }) }} )
-	    .on ("end", function () {
-	      let timeout = net_st.node_states[node].doTimeout ();
-	      net_st.addMsg (timeout);
-	      let {new_msgs, timer_reset} = net_st.node_states[node].handleMsgLoop (timeout);
-	      for (let i = 0; i < new_msgs.length; ++i) net_st.addMsg (new_msgs[i]);
-	      if (timer_reset) resetTimer (node, net_st);
-	    });
+	    .attrTween ("d", function () { return function (t) { return arc ({ startAngle: 0, endAngle: 2 * Math.PI * (1 - t), innerRadius: 21, outerRadius: 24 }) }} )
+	    .attrTween ("T", function () { return function (t) { return Math.round (t * delta * latency) } })
+	    .on ("end", arcs[node].node ().endFunc);
+}
+
+function pauseTimers () {
+  for (let i = 0; i < 3; ++i) arcs[i].interrupt ();
+}
+
+function resumeTimers () {
+  for (let i = 0; i < 3; ++i) {
+    if (arcs[i].attr ("running") === "true") {
+      arcs[i].interrupt ();
+      arcs[i].transition ()
+	     .duration (function () { return delta * latency - parseInt (this.getAttribute ("T")) })
+	     .ease (d3.easeLinear)
+	     .attrTween ("d", function () {
+		let rem_time = delta * latency - parseInt (this.getAttribute ("T"));
+		return function (t) { return arc ({ startAngle: 0, endAngle: 2 * Math.PI * (1 - t) * rem_time / (delta * latency), innerRadius: 21, outerRadius: 24 }) }
+	     })
+	     .attrTween ("T", function () {
+		let rem_time = delta * latency - parseInt (this.getAttribute ("T"));
+		return function (t) { return delta * latency - rem_time + Math.round (t * rem_time) }
+	     })
+	     .on ("end", arcs[i].node ().endFunc);
+    }
+  }
 }
 
 const svg_block =
@@ -193,6 +254,20 @@ const svg_block =
 
 svg_block.node ().append (svg.node ());
 container.append (svg_block.node ());
+
+const pauseButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .text ("Pause animation")
+        .on ("click", function () { pauseMsgs (); pauseTimers (); });
+
+const resumeButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .text ("Resume animation")
+        .on ("click", function () { resumeMsgs(); resumeTimers (); });
 
 const sendMsgButton =
       d3.create ("button")
@@ -224,6 +299,8 @@ const gstButton =
         .style ("display", "block")
         .text ("Commence global synchronization (GST)");
 
+container.append (pauseButton.node ());
+container.append (resumeButton.node ());
 container.append (sendMsgButton.node ());
 container.append (createMsgButton.node ());
 container.append (timeoutButton.node ());
