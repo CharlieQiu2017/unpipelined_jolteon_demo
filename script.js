@@ -124,6 +124,8 @@ for (let i = 0; i < 4; ++i) {
 const delta = 1000;
 const latency = 10;
 
+let simulationPaused = false;
+
 let msg_group = svg.append ("g");
 
 function createMsgVert (sender, receiver, msg, net_st) {
@@ -148,17 +150,19 @@ function createMsgVert (sender, receiver, msg, net_st) {
     if (receiver != 3) {
     let {new_msgs, timer_reset} = net_st.node_states[receiver].handleMsgLoop (msg);
       for (let i = 0; i < new_msgs.length; ++i) net_st.addMsg (new_msgs[i]);
-      if (timer_reset) { resetTimer (receiver, net_st); }
+      if (timer_reset && net_st.gst) { resetTimer (receiver, net_st); }
     }
   };
 
-  msgCirc.transition ()
-         .duration (delta)
-         .ease (d3.easeLinear)
-         .attr ("cx", end_cx)
-         .attr ("cy", end_cy)
-         .attrTween ("T", function () { return function (t) { return Math.round (t * delta) } })
-         .on ("end", msgCirc.node ().endFunc);
+  if (! simulationPaused) {
+    msgCirc.transition ()
+           .duration (delta)
+           .ease (d3.easeLinear)
+           .attr ("cx", end_cx)
+           .attr ("cy", end_cy)
+           .attrTween ("T", function () { return function (t) { return Math.round (t * delta) } })
+           .on ("end", msgCirc.node ().endFunc);
+  }
 }
 
 function pauseMsgs () {
@@ -195,7 +199,7 @@ for (let i = 0; i < 3; ++i) {
   arcs.push (svg.append ("path")
 		.attr ("fill", "red")
 		.attr ("transform", "translate(" + arc_centers[i][0] + "," + arc_centers[i][1] + ")")
-		.attr ("d", arc ({ startAngle: 0, endAngle: 2 * Math.PI, innerRadius: 21, outerRadius: 24 }))
+		.attr ("d", arc ({ startAngle: 0, endAngle: 0, innerRadius: 21, outerRadius: 24 }))
 		.attr ("T", 0)
 		.attr ("running", "false")
 	    );
@@ -215,12 +219,14 @@ function resetTimer (node, net_st) {
 
   arcs[node].attr ("running", "true");
 
-  arcs[node].transition ()
-	    .duration (delta * latency)
-	    .ease (d3.easeLinear)
-	    .attrTween ("d", function () { return function (t) { return arc ({ startAngle: 0, endAngle: 2 * Math.PI * (1 - t), innerRadius: 21, outerRadius: 24 }) }} )
-	    .attrTween ("T", function () { return function (t) { return Math.round (t * delta * latency) } })
-	    .on ("end", arcs[node].node ().endFunc);
+  if (! simulationPaused) {
+    arcs[node].transition ()
+	      .duration (delta * latency)
+	      .ease (d3.easeLinear)
+	      .attrTween ("d", function () { return function (t) { return arc ({ startAngle: 0, endAngle: 2 * Math.PI * (1 - t), innerRadius: 21, outerRadius: 24 }) }} )
+	      .attrTween ("T", function () { return function (t) { return Math.round (t * delta * latency) } })
+	      .on ("end", arcs[node].node ().endFunc);
+  }
 }
 
 function pauseTimers () {
@@ -259,53 +265,139 @@ const pauseButton =
       d3.create ("button")
         .attr ("type", "button")
         .style ("display", "block")
+        .classed ("main", true)
         .text ("Pause animation")
-        .on ("click", function () { pauseMsgs (); pauseTimers (); });
+        .on ("click", function () { simulationPaused = true; pauseMsgs (); pauseTimers (); });
 
 const resumeButton =
       d3.create ("button")
         .attr ("type", "button")
         .style ("display", "block")
+        .classed ("main", true)
         .text ("Resume animation")
-        .on ("click", function () { resumeMsgs(); resumeTimers (); });
+        .on ("click", function () { simulationPaused = false; resumeMsgs(); resumeTimers (); });
+
+const console_tabs_div = d3.create ("div").classed ("tab", true);
 
 const sendMsgButton =
       d3.create ("button")
         .attr ("type", "button")
-        .style ("display", "block")
+        .classed ("tablinks", true)
         .text ("Deliver an existing message");
 
 const createMsgButton =
       d3.create ("button")
         .attr ("type", "button")
-        .style ("display", "block")
+        .classed ("tablinks", true)
         .text ("Create a byzantine node message");
 
 const timeoutButton =
       d3.create ("button")
         .attr ("type", "button")
-        .style ("display", "block")
+        .classed ("tablinks", true)
         .text ("Deliver a timeout signal to an honest node");
 
 const setValButton =
       d3.create ("button")
         .attr ("type", "button")
-        .style ("display", "block")
+        .classed ("tablinks", true)
         .text ("Set the next value to be proposed by an honest node");
 
 const gstButton =
       d3.create ("button")
         .attr ("type", "button")
-        .style ("display", "block")
+        .classed ("tablinks", true)
         .text ("Commence global synchronization (GST)");
+
+let sendMsgConsole = d3.create ("div").classed ("tabcontent", true);
+let createMsgConsole = d3.create ("div").classed ("tabcontent", true);
+let timeoutConsole = d3.create ("div").classed ("tabcontent", true);
+let setValConsole = d3.create ("div").classed ("tabcontent", true);
+let gstConsole = d3.create ("div").classed ("tabcontent", true);
+
+sendMsgButton.on ("click", function () {
+  sendMsgButton.classed ("active", true);
+  createMsgButton.classed ("active", false);
+  timeoutButton.classed ("active", false);
+  setValButton.classed ("active", false);
+  gstButton.classed ("active", false);
+
+  sendMsgConsole.style ("display", "block");
+  createMsgConsole.style ("display", "none");
+  timeoutConsole.style ("display", "none");
+  setValConsole.style ("display", "none");
+  gstConsole.style ("display", "none");
+});
+
+createMsgButton.on ("click", function () {
+  sendMsgButton.classed ("active", false);
+  createMsgButton.classed ("active", true);
+  timeoutButton.classed ("active", false);
+  setValButton.classed ("active", false);
+  gstButton.classed ("active", false);
+
+  sendMsgConsole.style ("display", "none");
+  createMsgConsole.style ("display", "block");
+  timeoutConsole.style ("display", "none");
+  setValConsole.style ("display", "none");
+  gstConsole.style ("display", "none");
+});
+
+timeoutButton.on ("click", function () {
+  sendMsgButton.classed ("active", false);
+  createMsgButton.classed ("active", false);
+  timeoutButton.classed ("active", true);
+  setValButton.classed ("active", false);
+  gstButton.classed ("active", false);
+
+  sendMsgConsole.style ("display", "none");
+  createMsgConsole.style ("display", "none");
+  timeoutConsole.style ("display", "block");
+  setValConsole.style ("display", "none");
+  gstConsole.style ("display", "none");
+});
+
+setValButton.on ("click", function () {
+  sendMsgButton.classed ("active", false);
+  createMsgButton.classed ("active", false);
+  timeoutButton.classed ("active", false);
+  setValButton.classed ("active", true);
+  gstButton.classed ("active", false);
+
+  sendMsgConsole.style ("display", "none");
+  createMsgConsole.style ("display", "none");
+  timeoutConsole.style ("display", "none");
+  setValConsole.style ("display", "block");
+  gstConsole.style ("display", "none");
+});
+
+gstButton.on ("click", function () {
+  sendMsgButton.classed ("active", false);
+  createMsgButton.classed ("active", false);
+  timeoutButton.classed ("active", false);
+  setValButton.classed ("active", false);
+  gstButton.classed ("active", true);
+
+  sendMsgConsole.style ("display", "none");
+  createMsgConsole.style ("display", "none");
+  timeoutConsole.style ("display", "none");
+  setValConsole.style ("display", "none");
+  gstConsole.style ("display", "block");
+});
 
 container.append (pauseButton.node ());
 container.append (resumeButton.node ());
-container.append (sendMsgButton.node ());
-container.append (createMsgButton.node ());
-container.append (timeoutButton.node ());
-container.append (setValButton.node ());
-container.append (gstButton.node ());
+container.append (console_tabs_div.node ());
+console_tabs_div.node ().append (sendMsgButton.node ());
+console_tabs_div.node ().append (createMsgButton.node ());
+console_tabs_div.node ().append (timeoutButton.node ());
+console_tabs_div.node ().append (setValButton.node ());
+console_tabs_div.node ().append (gstButton.node ());
+container.append (sendMsgConsole.node ());
+container.append (createMsgConsole.node ());
+container.append (timeoutConsole.node ());
+container.append (setValConsole.node ());
+container.append (gstConsole.node ());
 
 function leader_at (r) {
   return ((r - 1) % 4);
@@ -339,6 +431,47 @@ class message {
      */
     this.prev_undeliv_msg = null;
     this.next_undeliv_msg = null;
+  }
+
+  embeddedToString () {
+    if (this.embedded.length === 0) return "[]";
+    let str = "[";
+    for (let i = 0; i < this.embedded.length - 1; ++i) {
+      str += this.embedded[i].toString ();
+      str += ", ";
+    }
+    str += this.embedded[this.embedded.length - 1].toString ();
+    str += "]";
+    return str;
+  }
+
+  toString () {
+    if (this.type === 0) {
+      return "ECacheVote(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ")";
+    } else if (this.type === 1) {
+      return "MCacheVote(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ")";
+    } else if (this.type === 2) {
+      return "CCacheVote(" + this.nid.toString () + ", " + this.r.toString () + ")";
+    } else if (this.type === 3) {
+      return "ECacheCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+    } else if (this.type === 4) {
+      return "MCacheCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+    } else if (this.type === 5) {
+      return "CCacheCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
+    } else if (this.type === 6) {
+      return "TimeoutVote(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
+    } else if (this.type === 7) {
+      return "TimeoutCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+    } else if (this.type === 8) {
+      return "CommitCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
+    } else if (this.type === 9) {
+      return "PullReq(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+    } else if (this.type === 10) {
+      return "InvokeReq(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+    } else if (this.type === 11) {
+      return "PushReq(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
+    }
+    return "Internal error";
   }
 }
 
@@ -719,10 +852,20 @@ class net_state {
     for (let i = 0; i < 3; ++i) this.node_states[i] = new honest_node (i);
     this.msgs = [];
     this.undeliv_msg_list = null;
+
+    /* Message list for the "deliver chosen message" console */
+    this.dom_msg_list1 = null;
+    /* Message list for the "build byzantine message" console */
+    this.dom_msg_list2 = null;
+
+    this.gst = false;
   }
 
   addMsg (msg) {
     this.msgs.push (msg);
+    if (this.dom_msg_list1 !== null) {
+      this.dom_msg_list1.append ("option").text (msg.toString ());
+    }
 
     if ((msg.type >= 0 && msg.type <= 2) || (msg.type >= 6 && msg.type <= 11)) {
       msg.next_undeliv_msg = this.undeliv_msg_list;
@@ -730,8 +873,7 @@ class net_state {
 	this.undeliv_msg_list.prev_undeliv_msg = msg;
       }
       this.undeliv_msg_list = msg;
-      /* For the moment, deliver the msg immediately */
-      this.delivMsgAll (msg);
+      if (this.gst) this.delivMsgAll (msg);
     }
   }
 
@@ -763,6 +905,84 @@ class net_state {
 let global_net_st = new net_state ();
 document.global_net_st = global_net_st;
 
-for (let i = 0; i < 3; ++i) {
-  resetTimer (i, global_net_st);
-}
+/* sendMsgConsole */
+let sendMsgSelect = d3.create ("select").style ("height", "40px").style ("width", "1000px").style ("font-size", "18px");
+global_net_st.dom_msg_list1 = sendMsgSelect.append ("optgroup").style ("font-size", "18px");
+global_net_st.dom_msg_list1.append ("option").text ("-- Select a message to send --");
+let sendMsgDstSelect = d3.create ("select").style ("height", "40px").style ("font-size", "18px");
+sendMsgDstSelect.append ("option").text ("Deliver to node 1");
+sendMsgDstSelect.append ("option").text ("Deliver to node 2");
+sendMsgDstSelect.append ("option").text ("Deliver to node 3");
+sendMsgDstSelect.append ("option").text ("Deliver to all recipients");
+let sendMsgCompleteButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .style ("font-size", "18px")
+        .text ("Send chosen message")
+        .on ("click", function () {
+	  let idx = sendMsgSelect.node ().selectedIndex;
+	  let dstIdx = sendMsgDstSelect.node ().selectedIndex;
+	  if (idx === 0) {
+	    alert ("Please choose a valid message");
+	  } else {
+	    if (dstIdx === 3) {
+	      global_net_st.delivMsgAll (global_net_st.msgs[idx - 1]);
+	    } else {
+	      global_net_st.delivMsgOne (global_net_st.msgs[idx - 1], dstIdx);
+	    }
+	  }
+        });
+
+sendMsgConsole.node ().append (sendMsgSelect.node ());
+sendMsgConsole.node ().append (sendMsgDstSelect.node ());
+sendMsgConsole.node ().append (sendMsgCompleteButton.node ());
+
+/* timeoutConsole */
+let timeoutSelect = d3.create ("select").style ("height", "40px").style ("font-size", "18px");
+timeoutSelect.append ("option").text ("Node 1");
+timeoutSelect.append ("option").text ("Node 2");
+timeoutSelect.append ("option").text ("Node 3");
+
+let timeoutCompleteButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .style ("font-size", "18px")
+        .text ("Deliver timeout to chosen node")
+        .on ("click", function () {
+	  let idx = timeoutSelect.node ().selectedIndex;
+	  let timeout = global_net_st.node_states[idx].doTimeout ();
+	  global_net_st.addMsg (timeout);
+	  let {new_msgs, timer_reset} = global_net_st.node_states[idx].handleMsgLoop (timeout);
+	  for (let i = 0; i < new_msgs.length; ++i) global_net_st.addMsg (new_msgs[i]);
+	  if (timer_reset && global_net_st.gst) resetTimer (idx, global_net_st);
+        });
+
+timeoutConsole.node ().append (timeoutSelect.node ());
+timeoutConsole.node ().append (timeoutCompleteButton.node ());
+
+/* gstConsole */
+let gstCompleteButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .style ("font-size", "18px")
+        .text ("Commence GST")
+        .on ("click", function () {
+	  if (global_net_st.gst) return;
+	  global_net_st.gst = true;
+
+	  /* Deliver all undelivered msgs */
+	  let m = global_net_st.undeliv_msg_list;
+	  while (m !== null) {
+	    let m_next = m.next_undeliv_msg;
+	    global_net_st.delivMsgAll (m);
+	    m = m_next;
+	  }
+
+	  /* Reset all timers */
+	  for (let i = 0; i < 3; ++i) resetTimer (i, global_net_st);
+        });
+
+gstConsole.node ().append (gstCompleteButton.node ());
