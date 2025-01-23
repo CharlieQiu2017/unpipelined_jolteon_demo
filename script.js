@@ -951,6 +951,10 @@ let timeoutCompleteButton =
         .style ("font-size", "18px")
         .text ("Deliver timeout to chosen node")
         .on ("click", function () {
+	  if (global_net_st.gst) {
+	    alert ("Timeout signals cannot be delivered manually after GST");
+	    return;
+	  }
 	  let idx = timeoutSelect.node ().selectedIndex;
 	  let timeout = global_net_st.node_states[idx].doTimeout ();
 	  global_net_st.addMsg (timeout);
