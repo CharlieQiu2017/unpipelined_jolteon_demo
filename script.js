@@ -1,10 +1,12 @@
 import * as d3 from "https://cdn.jsdelivr.net/npm/d3@7/+esm";
-const width = 650;
+const width = 1500;
 const height = 600;
 const marginTop = 80;
-const marginRight = 150;
+const marginRight = 1000;
 const marginBottom = 40;
 const marginLeft = 20;
+const detailTextX = 650;
+const detailTextY = 150;
 
 const svg = d3.create ("svg")
               .attr ("width", width)
@@ -42,31 +44,102 @@ svg.append ("circle")
    .attr ("stroke", "black");
 
 /* Text labels for the nodes */
-/* TODO: Show node state upon clicking the labels */
+let node_labels = [];
 
-svg.append ("text")
-   .attr ("x", marginLeft)
-   .attr ("y", marginTop - 20)
-   .attr ("font-size", 25)
-   .text ("Node 1 (honest)");
+node_labels[0] =
+  svg.append ("text")
+     .attr ("x", marginLeft)
+     .attr ("y", marginTop - 20)
+     .attr ("font-size", 25)
+     .text ("Node 1 (honest)");
 
-svg.append ("text")
-   .attr ("x", width - marginRight - 2 * nodeSize)
-   .attr ("y", marginTop - 20)
-   .attr ("font-size", 25)
-   .text ("Node 2 (honest)");
+node_labels[1] =
+  svg.append ("text")
+     .attr ("x", width - marginRight - 2 * nodeSize)
+     .attr ("y", marginTop - 20)
+     .attr ("font-size", 25)
+     .text ("Node 2 (honest)");
 
-svg.append ("text")
-   .attr ("x", marginLeft)
-   .attr ("y", height - marginBottom + 35)
-   .attr ("font-size", 25)
-   .text ("Node 3 (honest)");
+node_labels[2] =
+  svg.append ("text")
+     .attr ("x", marginLeft)
+     .attr ("y", height - marginBottom + 35)
+     .attr ("font-size", 25)
+     .text ("Node 3 (honest)");
 
-svg.append ("text")
-   .attr ("x", width - marginRight - 2 * nodeSize)
-   .attr ("y", height - marginBottom + 35)
-   .attr ("font-size", 25)
-   .text ("Node 4 (byzantine)");
+node_labels[3] =
+  svg.append ("text")
+     .attr ("x", width - marginRight - 2 * nodeSize)
+     .attr ("y", height - marginBottom + 35)
+     .attr ("font-size", 25)
+     .text ("Node 4 (byzantine)");
+
+/* Text box for showing node and msg details */
+const detailText =
+  svg.append ("text")
+     .text ("Click on a node label or an in-transit message to see its details here")
+     .attr ("x", detailTextX)
+     .attr ("y", detailTextY)
+     .attr ("font-size", 18);
+
+function voterPhaseToString (p) {
+  if (p === 0) {
+    return "Waiting for Pull request";
+  } else if (p === 1) {
+    return "Voted for Pull request, waiting for Invoke request";
+  } else if (p === 2) {
+    return "Voted for Invoke request, waiting for Push request";
+  } else if (p === 3) {
+    return "Voted for Push request";
+  } else if (p === 4) {
+    return "Local timer expired, waiting for TimeoutCert";
+  }
+}
+
+function leaderPhaseToString (p) {
+  if (p.type === 0) {
+    return "Not leader in current round";
+  } else if (p.type === 2) {
+    return "Pull request sent, waiting for votes";
+  } else if (p.type === 4) {
+    return "Invoke request sent, waiting for votes";
+  } else if (p.type === 6) {
+    return "Push request sent, waiting for votes";
+  } else if (p.type === 7) {
+    return "Proposal committed, waiting to enter next round";
+  }
+}
+
+for (let i = 0; i < 3; ++i) {
+  node_labels[i].style ("cursor", "pointer");
+  node_labels[i].on ("click", function () {
+    let st = global_net_st.node_states[i];
+    detailText.text ("");
+    detailText.append ("tspan")
+              .text ("Internal state of node " + String (i + 1));
+    detailText.append ("tspan")
+              .attr ("x", detailTextX)
+              .attr ("dy", 25)
+              .text ("Round: " + String (st.round));
+    detailText.append ("tspan")
+              .attr ("x", detailTextX)
+              .attr ("dy", 25)
+              .text ("Phase as voter: " + voterPhaseToString (st.voter_phase));
+    detailText.append ("tspan")
+              .attr ("x", detailTextX)
+              .attr ("dy", 25)
+              .text ("Phase as leader: " + leaderPhaseToString (st.leader_phase));
+    detailText.append ("tspan")
+              .attr ("x", detailTextX)
+              .attr ("dy", 25)
+              .text ("Local timer remaining time: " + getLocalTimerTime (i));
+  });
+}
+
+node_labels[3].style ("cursor", "pointer");
+node_labels[3].on ("click", function () {
+  detailText.text ("This is the byzantine node. It has no internal state.");
+});
 
 /* Coordinates of anchor points on each node circle */
 const coords =
@@ -128,6 +201,34 @@ let simulationPaused = false;
 
 let msg_group = svg.append ("g");
 
+function msgGetType (msg) {
+  if (msg.type === 0) {
+    return "ECacheVote";
+  } else if (msg.type === 1) {
+    return "MCacheVote";
+  } else if (msg.type === 2) {
+    return "CCacheVote";
+  } else if (msg.type === 3) {
+    return "ECacheCert";
+  } else if (msg.type === 4) {
+    return "MCacheCert";
+  } else if (msg.type === 5) {
+    return "CCacheCert";
+  } else if (msg.type === 6) {
+    return "TimeoutVote";
+  } else if (msg.type === 7) {
+    return "TimeoutCert";
+  } else if (msg.type === 8) {
+    return "CommitCert";
+  } else if (msg.type === 9) {
+    return "PullReq";
+  } else if (msg.type === 10) {
+    return "InvokeReq";
+  } else if (msg.type === 11) {
+    return "PushReq";
+  }
+}
+
 function createMsgVert (sender, receiver, msg, net_st) {
   if (sender === receiver) return;
 
@@ -143,12 +244,39 @@ function createMsgVert (sender, receiver, msg, net_st) {
 			   .attr ("fill", "orange")
 			   .attr ("T", 0)
 			   .attr ("dst_cx", end_cx)
-			   .attr ("dst_cy", end_cy);
+			   .attr ("dst_cy", end_cy)
+			   .style ("cursor", "pointer");
+
+  msgCirc.on ("click", function () {
+    detailText.text ("");
+    detailText.append ("tspan")
+	      .text ("Selected message:");
+    detailText.append ("tspan")
+	      .attr ("x", detailTextX)
+	      .attr ("dy", 25)
+	      .text ("Type: " + msgGetType (msg));
+    detailText.append ("tspan")
+	      .attr ("x", detailTextX)
+	      .attr ("dy", 25)
+	      .text ("Sender: Node " + String (msg.nid + 1));
+    detailText.append ("tspan")
+	      .attr ("x", detailTextX)
+	      .attr ("dy", 25)
+	      .text ("Round: " + String (msg.r));
+    detailText.append ("tspan")
+	      .attr ("x", detailTextX)
+	      .attr ("dy", 25)
+	      .text ("Content: " + String (msg.content));
+    detailText.append ("tspan")
+	      .attr ("x", detailTextX)
+	      .attr ("dy", 25)
+	      .text ("Semantically valid: " + (msg.validate () ? "True" : "False"));
+  });
 
   msgCirc.node ().endFunc = function () {
     msgCirc.remove ();
-    if (receiver != 3) {
-    let {new_msgs, timer_reset} = net_st.node_states[receiver].handleMsgLoop (msg);
+    if (receiver != 3 && msg.validate ()) {
+      let {new_msgs, timer_reset} = net_st.node_states[receiver].handleMsgLoop (msg);
       for (let i = 0; i < new_msgs.length; ++i) net_st.addMsg (new_msgs[i]);
       if (timer_reset && net_st.gst) { resetTimer (receiver, net_st); }
     }
@@ -205,6 +333,12 @@ for (let i = 0; i < 3; ++i) {
 	    );
 }
 
+function getLocalTimerTime (i) {
+  if (! global_net_st.gst) return "Local timer not running (commence GST to enable local timers)";
+  if (arcs[i].attr ("running") === "false") return "Local timer expired";
+  return String ((10000 - arcs[i].attr ("T")) / 1000);
+}
+
 function resetTimer (node, net_st) {
   arcs[node].interrupt ();
 
@@ -214,7 +348,7 @@ function resetTimer (node, net_st) {
     net_st.addMsg (timeout);
     let {new_msgs, timer_reset} = net_st.node_states[node].handleMsgLoop (timeout);
     for (let i = 0; i < new_msgs.length; ++i) net_st.addMsg (new_msgs[i]);
-    if (timer_reset) resetTimer (node, net_st);
+    if (timer_reset && net_st.gst) resetTimer (node, net_st);
   }
 
   arcs[node].attr ("running", "true");
@@ -261,13 +395,19 @@ const svg_block =
 svg_block.node ().append (svg.node ());
 container.append (svg_block.node ());
 
+const pauseIndicator =
+      d3.create ("div")
+        .text ("Animation is currently running")
+        .style ("margin-bottom", "20px")
+        .classed ("main", true);
+
 const pauseButton =
       d3.create ("button")
         .attr ("type", "button")
         .style ("display", "block")
         .classed ("main", true)
         .text ("Pause animation")
-        .on ("click", function () { simulationPaused = true; pauseMsgs (); pauseTimers (); });
+        .on ("click", function () { simulationPaused = true; pauseMsgs (); pauseTimers (); pauseIndicator.text ("Animation is currently paused"); });
 
 const resumeButton =
       d3.create ("button")
@@ -275,7 +415,7 @@ const resumeButton =
         .style ("display", "block")
         .classed ("main", true)
         .text ("Resume animation")
-        .on ("click", function () { simulationPaused = false; resumeMsgs(); resumeTimers (); });
+        .on ("click", function () { simulationPaused = false; resumeMsgs(); resumeTimers (); pauseIndicator.text ("Animation is currently running"); });
 
 const console_tabs_div = d3.create ("div").classed ("tab", true);
 
@@ -309,11 +449,18 @@ const gstButton =
         .classed ("tablinks", true)
         .text ("Commence global synchronization (GST)");
 
+const lidoButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .classed ("tablinks", true)
+        .text ("LiDO Cache Tree");
+
 let sendMsgConsole = d3.create ("div").classed ("tabcontent", true);
 let createMsgConsole = d3.create ("div").classed ("tabcontent", true);
 let timeoutConsole = d3.create ("div").classed ("tabcontent", true);
 let setValConsole = d3.create ("div").classed ("tabcontent", true);
 let gstConsole = d3.create ("div").classed ("tabcontent", true);
+let lidoConsole = d3.create ("div").classed ("tabcontent", true);
 
 sendMsgButton.on ("click", function () {
   sendMsgButton.classed ("active", true);
@@ -321,12 +468,16 @@ sendMsgButton.on ("click", function () {
   timeoutButton.classed ("active", false);
   setValButton.classed ("active", false);
   gstButton.classed ("active", false);
+  lidoButton.classed ("active", false);
 
   sendMsgConsole.style ("display", "block");
   createMsgConsole.style ("display", "none");
   timeoutConsole.style ("display", "none");
   setValConsole.style ("display", "none");
   gstConsole.style ("display", "none");
+  lidoConsole.style ("display", "none");
+
+  window.scrollTo(0, document.body.scrollHeight);
 });
 
 createMsgButton.on ("click", function () {
@@ -335,12 +486,16 @@ createMsgButton.on ("click", function () {
   timeoutButton.classed ("active", false);
   setValButton.classed ("active", false);
   gstButton.classed ("active", false);
+  lidoButton.classed ("active", false);
 
   sendMsgConsole.style ("display", "none");
   createMsgConsole.style ("display", "block");
   timeoutConsole.style ("display", "none");
   setValConsole.style ("display", "none");
   gstConsole.style ("display", "none");
+  lidoConsole.style ("display", "none");
+
+  window.scrollTo(0, document.body.scrollHeight);
 });
 
 timeoutButton.on ("click", function () {
@@ -349,12 +504,16 @@ timeoutButton.on ("click", function () {
   timeoutButton.classed ("active", true);
   setValButton.classed ("active", false);
   gstButton.classed ("active", false);
+  lidoButton.classed ("active", false);
 
   sendMsgConsole.style ("display", "none");
   createMsgConsole.style ("display", "none");
   timeoutConsole.style ("display", "block");
   setValConsole.style ("display", "none");
   gstConsole.style ("display", "none");
+  lidoConsole.style ("display", "none");
+
+  window.scrollTo(0, document.body.scrollHeight);
 });
 
 setValButton.on ("click", function () {
@@ -363,12 +522,16 @@ setValButton.on ("click", function () {
   timeoutButton.classed ("active", false);
   setValButton.classed ("active", true);
   gstButton.classed ("active", false);
+  lidoButton.classed ("active", false);
 
   sendMsgConsole.style ("display", "none");
   createMsgConsole.style ("display", "none");
   timeoutConsole.style ("display", "none");
   setValConsole.style ("display", "block");
   gstConsole.style ("display", "none");
+  lidoConsole.style ("display", "none");
+
+  window.scrollTo(0, document.body.scrollHeight);
 });
 
 gstButton.on ("click", function () {
@@ -377,14 +540,37 @@ gstButton.on ("click", function () {
   timeoutButton.classed ("active", false);
   setValButton.classed ("active", false);
   gstButton.classed ("active", true);
+  lidoButton.classed ("active", false);
 
   sendMsgConsole.style ("display", "none");
   createMsgConsole.style ("display", "none");
   timeoutConsole.style ("display", "none");
   setValConsole.style ("display", "none");
   gstConsole.style ("display", "block");
+  lidoConsole.style ("display", "none");
+
+  window.scrollTo(0, document.body.scrollHeight);
 });
 
+lidoButton.on ("click", function () {
+  sendMsgButton.classed ("active", false);
+  createMsgButton.classed ("active", false);
+  timeoutButton.classed ("active", false);
+  setValButton.classed ("active", false);
+  gstButton.classed ("active", false);
+  lidoButton.classed ("active", true);
+
+  sendMsgConsole.style ("display", "none");
+  createMsgConsole.style ("display", "none");
+  timeoutConsole.style ("display", "none");
+  setValConsole.style ("display", "none");
+  gstConsole.style ("display", "none");
+  lidoConsole.style ("display", "block");
+
+  window.scrollTo(0, document.body.scrollHeight);
+});
+
+container.append (pauseIndicator.node ());
 container.append (pauseButton.node ());
 container.append (resumeButton.node ());
 container.append (console_tabs_div.node ());
@@ -393,11 +579,13 @@ console_tabs_div.node ().append (createMsgButton.node ());
 console_tabs_div.node ().append (timeoutButton.node ());
 console_tabs_div.node ().append (setValButton.node ());
 console_tabs_div.node ().append (gstButton.node ());
+console_tabs_div.node ().append (lidoButton.node ());
 container.append (sendMsgConsole.node ());
 container.append (createMsgConsole.node ());
 container.append (timeoutConsole.node ());
 container.append (setValConsole.node ());
 container.append (gstConsole.node ());
+container.append (lidoConsole.node ());
 
 function leader_at (r) {
   return ((r - 1) % 4);
@@ -433,6 +621,92 @@ class message {
     this.next_undeliv_msg = null;
   }
 
+  /* Check if message is semantically valid */
+  validate () {
+    if (this.type < 0 || this.type > 11) return false;
+    if (this.nid < 0 || this.nid > 3) return false;
+    if (this.r <= 0) return false;
+    if (this.type === 0) {
+      return (this.content >= 0 && this.content < this.r && this.embedded.length === 0);
+    } else if (this.type === 1) {
+      return (this.embedded.length === 0);
+    } else if (this.type === 2) {
+      return (this.content === 0 && this.embedded.length === 0);
+    } else if (this.type >= 3 && this.type <= 5) {
+      if (this.nid != leader_at (this.r)) return false;
+      if (this.type === 5 && this.content !== 0) return false;
+      let voted = [false, false, false, false];
+      for (let i = 0; i < this.embedded.length; ++i) {
+	let m = this.embedded[i];
+	if (! m.validate ()) return false;
+	if (m.type !== this.type - 3 || m.r !== this.r || m.content !== this.content) return false;
+	voted[m.nid] = true;
+      }
+      let vote_count = 0;
+      for (let i = 0; i < 4; ++i) { if (voted[i]) ++vote_count; }
+      if (vote_count < 3) return false; else return true;
+    } else if (this.type === 6) {
+      if (this.content !== 0) return false;
+      if (this.embedded.length >= 2) return false;
+      if (this.embedded.length === 0) return true;
+      let m = this.embedded[0];
+      if (m.type !== 4 || m.r > this.r) return false;
+      return true;
+    } else if (this.type === 7) {
+      if (this.content > this.r) return false;
+      let voted = [false, false, false, false];
+      let found = false;
+      for (let i = 0; i < this.embedded.length; ++i) {
+	let m = this.embedded[i];
+	if (! m.validate ()) return false;
+	if (m.type !== 6 || m.r < this.r) return false;
+	let m_r = 0;
+        if (m.embedded.length > 0) m_r = m.embedded[0].r;
+        if (m_r > this.content) return false; else if (m_r === this.content) found = true;
+	voted[m.nid] = true;
+      }
+      if (! found) return false;
+      let vote_count = 0;
+      for (let i = 0; i < 4; ++i) { if (voted[i]) ++vote_count; }
+      if (vote_count < 3) return false; else return true;
+    } else if (this.type === 8) {
+      if (this.content !== 0) return false;
+      if (this.embedded.length !== 1) return false;
+      let m = this.embedded[0];
+      if (! m.validate ()) return false;
+      if (m.type !== 5) return false;
+      if (m.r !== this.r) return false;
+      return true;
+    } else if (this.type === 9) {
+      if (this.nid !== leader_at (this.r)) return false;
+      if (this.embedded.length !== 1) return false;
+      let m = this.embedded[0];
+      if (! m.validate ()) return false;
+      if (m.r !== this.r - 1) return false;
+      if (m.type === 7) {
+	return (this.content === m.content);
+      } else if (m.type === 8) {
+	return (this.content === this.r - 1);
+      } else return false;
+    } else if (this.type === 10) {
+      if (this.nid !== leader_at (this.r)) return false;
+      if (this.embedded.length !== 1) return false;
+      let m = this.embedded[0];
+      if (! m.validate ()) return false;
+      if (m.r !== this.r) return false;
+      if (m.type !== 3) return false;
+      return true;
+    } else if (this.type === 11) {
+      if (this.nid !== leader_at (this.r)) return false;
+      if (this.embedded.length !== 1) return false;
+      let m = this.embedded[0];
+      if (! m.validate ()) return false;
+      if (m.r !== this.r) return false;
+      if (m.type !== 4) return false;
+      return true;
+    }
+  }
+
   embeddedToString () {
     if (this.embedded.length === 0) return "[]";
     let str = "[";
@@ -447,29 +721,29 @@ class message {
 
   toString () {
     if (this.type === 0) {
-      return "ECacheVote(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ")";
+      return "ECacheVote(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.content.toString () + ")";
     } else if (this.type === 1) {
-      return "MCacheVote(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ")";
+      return "MCacheVote(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.content.toString () + ")";
     } else if (this.type === 2) {
-      return "CCacheVote(" + this.nid.toString () + ", " + this.r.toString () + ")";
+      return "CCacheVote(" + (this.nid + 1).toString () + ", " + this.r.toString () + ")";
     } else if (this.type === 3) {
-      return "ECacheCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+      return "ECacheCert(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
     } else if (this.type === 4) {
-      return "MCacheCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+      return "MCacheCert(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
     } else if (this.type === 5) {
-      return "CCacheCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
+      return "CCacheCert(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
     } else if (this.type === 6) {
-      return "TimeoutVote(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
+      return "TimeoutVote(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
     } else if (this.type === 7) {
-      return "TimeoutCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+      return "TimeoutCert(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
     } else if (this.type === 8) {
-      return "CommitCert(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
+      return "CommitCert(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
     } else if (this.type === 9) {
-      return "PullReq(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+      return "PullReq(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
     } else if (this.type === 10) {
-      return "InvokeReq(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
+      return "InvokeReq(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.content.toString () + ", " + this.embeddedToString () + ")";
     } else if (this.type === 11) {
-      return "PushReq(" + this.nid.toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
+      return "PushReq(" + (this.nid + 1).toString () + ", " + this.r.toString () + ", " + this.embeddedToString () + ")";
     }
     return "Internal error";
   }
@@ -866,6 +1140,9 @@ class net_state {
     if (this.dom_msg_list1 !== null) {
       this.dom_msg_list1.append ("option").text (msg.toString ());
     }
+    if (this.dom_msg_list2 !== null) {
+      this.dom_msg_list2.append ("option").text (msg.toString ());
+    }
 
     if ((msg.type >= 0 && msg.type <= 2) || (msg.type >= 6 && msg.type <= 11)) {
       msg.next_undeliv_msg = this.undeliv_msg_list;
@@ -874,6 +1151,12 @@ class net_state {
       }
       this.undeliv_msg_list = msg;
       if (this.gst) this.delivMsgAll (msg);
+    }
+
+    if (msg.type >= 3 && msg.type <= 5 && msg.r <= 5 && msg.validate ()) {
+      if (msg.type === 3) addECache (msg.r, msg.content);
+      else if (msg.type === 4) addMCache (msg.r, msg.content);
+      else if (msg.type === 5) addCCache (msg.r);
     }
   }
 
@@ -938,6 +1221,116 @@ sendMsgConsole.node ().append (sendMsgSelect.node ());
 sendMsgConsole.node ().append (sendMsgDstSelect.node ());
 sendMsgConsole.node ().append (sendMsgCompleteButton.node ());
 
+/* createMsgConsole */
+let crtMsgSelect = d3.create ("select").style ("height", "40px").style ("font-size", "18px");
+crtMsgSelect.append ("option").text ("ECacheVote");
+crtMsgSelect.append ("option").text ("MCacheVote");
+crtMsgSelect.append ("option").text ("CCacheVote");
+crtMsgSelect.append ("option").text ("ECacheCert");
+crtMsgSelect.append ("option").text ("MCacheCert");
+crtMsgSelect.append ("option").text ("CCacheCert");
+crtMsgSelect.append ("option").text ("TimeoutVote");
+crtMsgSelect.append ("option").text ("TimeoutCert");
+crtMsgSelect.append ("option").text ("CommitCert");
+crtMsgSelect.append ("option").text ("PullReq");
+crtMsgSelect.append ("option").text ("InvokeReq");
+crtMsgSelect.append ("option").text ("PushReq");
+
+let crtMsgRoundTextbox =
+    d3.create ("input")
+      .attr ("type", "text")
+      .style ("font-size", "18px")
+      .attr ("name", "crtMsgRound")
+      .attr ("value", "1");
+let crtMsgRoundLabel =
+    d3.create ("label")
+      .style ("font-size", "18px")
+      .attr ("for", "crtMsgRound")
+      .text ("Round Number");
+let crtMsgContentTextbox =
+    d3.create ("input")
+      .attr ("type", "text")
+      .style ("font-size", "18px")
+      .attr ("name", "crtMsgContent")
+      .attr ("value", "0");
+let crtMsgContentLabel =
+    d3.create ("label")
+      .style ("font-size", "18px")
+      .attr ("for", "crtMsgContent")
+      .text ("Message Content");
+let crtMsgEmbedTextbox =
+    d3.create ("input")
+      .attr ("type", "text")
+      .property ("disabled", true)
+      .style ("font-size", "18px")
+      .attr ("name", "crtMsgEmbed")
+      .attr ("value", "");
+let crtMsgEmbedLabel =
+    d3.create ("label")
+      .style ("font-size", "18px")
+      .attr ("for", "crtMsgEmbed")
+      .text ("Embedded messages");
+let crtMsgEmbedList = [];
+let embedMsgSelect = d3.create ("select").style ("height", "40px").style ("width", "1000px").style ("font-size", "18px");
+global_net_st.dom_msg_list2 = embedMsgSelect.append ("optgroup").style ("font-size", "18px");
+global_net_st.dom_msg_list2.append ("option").text ("-- Select a message to embed --");
+let crtMsgAddEmbedButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .style ("font-size", "18px")
+        .text ("Add selected message to embedded message list")
+        .on ("click", function () {
+	  let idx = embedMsgSelect.node ().selectedIndex;
+	  if (idx === 0) {
+	    alert ("Please select a valid message to embed");
+	    return;
+	  }
+	  crtMsgEmbedList.push (global_net_st.msgs[idx - 1]);
+	  let curr_val = crtMsgEmbedTextbox.attr ("value");
+	  crtMsgEmbedTextbox.attr ("value", curr_val + String (idx - 1) + ",");
+        });
+let crtMsgClearEmbedButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .style ("font-size", "18px")
+        .text ("Clear list of embedded messages")
+        .on ("click", function () {
+	  crtMsgEmbedList = [];
+	  crtMsgEmbedTextbox.attr ("value", "");
+        });
+let crtMsgCompleteButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .style ("font-size", "18px")
+        .text ("Inject constructed message into the network")
+        .on ("click", function () {
+	  let m_type = crtMsgSelect.node ().selectedIndex;
+	  let m_nid = 3;
+	  let m_r = parseInt (crtMsgRoundTextbox.node ().value);
+	  let m_content = parseInt (crtMsgContentTextbox.node ().value);
+	  let m_embedded = [...crtMsgEmbedList];
+	  let msg = new message (m_type, m_nid, m_r, m_content, m_embedded);
+	  if (! msg.validate ()) {
+	    if (! window.confirm ("Constructed message is not semantically valid. Still inject this message? (Semantically invalid messages are silently ignored by honest nodes)")) return;
+	  }
+	  global_net_st.addMsg (msg);
+        });
+
+createMsgConsole.node ().append (crtMsgSelect.node ());
+createMsgConsole.node ().append (crtMsgRoundLabel.node ());
+createMsgConsole.node ().append (crtMsgRoundTextbox.node ());
+createMsgConsole.node ().append (crtMsgContentLabel.node ());
+createMsgConsole.node ().append (crtMsgContentTextbox.node ());
+createMsgConsole.node ().append (crtMsgEmbedLabel.node ());
+createMsgConsole.node ().append (crtMsgEmbedTextbox.node ());
+createMsgConsole.node ().append (embedMsgSelect.node ());
+createMsgConsole.node ().append (crtMsgAddEmbedButton.node ());
+createMsgConsole.node ().append (crtMsgClearEmbedButton.node ());
+createMsgConsole.node ().append (crtMsgCompleteButton.node ());
+
 /* timeoutConsole */
 let timeoutSelect = d3.create ("select").style ("height", "40px").style ("font-size", "18px");
 timeoutSelect.append ("option").text ("Node 1");
@@ -966,7 +1359,41 @@ let timeoutCompleteButton =
 timeoutConsole.node ().append (timeoutSelect.node ());
 timeoutConsole.node ().append (timeoutCompleteButton.node ());
 
+/* setValConsole */
+let setValSelect = d3.create ("select").style ("height", "40px").style ("font-size", "18px");
+setValSelect.append ("option").text ("Node 1");
+setValSelect.append ("option").text ("Node 2");
+setValSelect.append ("option").text ("Node 3");
+
+let setValTextbox =
+    d3.create ("input")
+      .attr ("type", "text")
+      .style ("font-size", "18px")
+      .attr ("value", "0");
+
+let setValCompleteButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .style ("font-size", "18px")
+        .text ("Set proposal for chosen node")
+        .on ("click", function () {
+	  let v = parseInt (setValTextbox.node ().value, 10);
+	  let idx = setValSelect.node ().selectedIndex;
+	  global_net_st.node_states[idx].client_data = v;
+        });
+
+setValConsole.node ().append (setValSelect.node ());
+setValConsole.node ().append (setValTextbox.node ());
+setValConsole.node ().append (setValCompleteButton.node ());
+
 /* gstConsole */
+let gstIndicator =
+      d3.create ("div")
+        .text ("GST is currently not in effect")
+        .style ("margin-bottom", "20px")
+        .classed ("main", true);
+
 let gstCompleteButton =
       d3.create ("button")
         .attr ("type", "button")
@@ -976,6 +1403,7 @@ let gstCompleteButton =
         .on ("click", function () {
 	  if (global_net_st.gst) return;
 	  global_net_st.gst = true;
+	  gstIndicator.text ("GST is currently in effect");
 
 	  /* Deliver all undelivered msgs */
 	  let m = global_net_st.undeliv_msg_list;
@@ -989,4 +1417,221 @@ let gstCompleteButton =
 	  for (let i = 0; i < 3; ++i) resetTimer (i, global_net_st);
         });
 
+let gstStopButton =
+      d3.create ("button")
+        .attr ("type", "button")
+        .style ("display", "block")
+        .style ("font-size", "18px")
+        .text ("Stop GST")
+        .on ("click", function () {
+	  if (! global_net_st.gst) return;
+	  global_net_st.gst = false;
+	  gstIndicator.text ("GST is currently not in effect");
+
+	  /* Stop all timers */
+	  for (let i = 0; i < 3; ++i) {
+	    arcs[i].interrupt ();
+	    arcs[i].attr ("d", arc ({ startAngle: 0, endAngle: 0, innerRadius: 21, outerRadius: 24 }))
+		   .attr ("T", 0)
+		   .attr ("running", "false")
+	  }
+        });
+
+gstConsole.node ().append (gstIndicator.node ());
 gstConsole.node ().append (gstCompleteButton.node ());
+gstConsole.node ().append (gstStopButton.node ());
+
+/* lidoConsole */
+lidoConsole.append ("div").text ("Only cache nodes for the first 5 rounds are shown.");
+let lidoGraph = lidoConsole.append ("svg").attr ("width", 1400).attr ("height", 650);
+
+/* Columns */
+lidoGraph.append ("text")
+         .attr ("x", 350)
+         .attr ("y", 120)
+         .attr ("font-size", 18)
+         .attr ("text-anchor", "middle")
+         .text ("Pull (ECache)");
+lidoGraph.append ("text")
+         .attr ("x", 650)
+         .attr ("y", 120)
+         .attr ("font-size", 18)
+         .attr ("text-anchor", "middle")
+         .text ("Invoke (MCache)");
+lidoGraph.append ("text")
+         .attr ("x", 950)
+         .attr ("y", 120)
+         .attr ("font-size", 18)
+         .attr ("text-anchor", "middle")
+         .text ("Push (CCache)");
+
+/* Rows */
+for (let i = 1; i <= 5; ++i) {
+  lidoGraph.append ("text")
+	   .attr ("x", 50)
+	   .attr ("y", 100 + 100 * i)
+	   .attr ("font-size", 18)
+	   .attr ("dominant-baseline", "middle")
+	   .text ("Round " + String (i));
+}
+
+/* Root cache node */
+lidoGraph.append ("rect")
+         .attr ("x", 150)
+         .attr ("y", 20)
+         .attr ("width", 110)
+         .attr ("height", 50)
+         .attr ("fill", "none")
+         .attr ("stroke", "black")
+         .attr ("stroke-width", 1);
+
+lidoGraph.append ("text")
+    .attr ("x", 205)
+    .attr ("y", 45)
+    .attr ("font-size", 18)
+    .attr ("text-anchor", "middle")
+    .attr ("dominant-baseline", "middle")
+    .text ("Root");
+
+const ecache_path = "M 0 30 L 40 0 L 140 0 L 180 30 L 140 60 L 40 60 L 0 30";
+const ccache_path = "M 0 0 L 180 0 L 180 60 L 0 60 L 0 0";
+
+let ecache_dom = [];
+let mcache_dom = [];
+let ccache_dom = [];
+let ecache_text = [];
+let mcache_text = [];
+let ccache_text = [];
+let ecache_arrow = [];
+let mcache_arrow = [];
+let ccache_arrow = [];
+
+/* https://developer.mozilla.org/en-US/docs/Web/SVG/Reference/Element/marker */
+let marker = lidoGraph.append ("marker")
+    .attr ("id", "arrow")
+    .attr ("viewBox", "0 0 16 16")
+    .attr ("refX", 8)
+    .attr ("refY", 8)
+    .attr ("markerWidth", 12)
+    .attr ("markerHeight", 12)
+    .attr ("orient", "auto-start-reverse");
+marker.append ("path")
+    .attr ("d", "M 0 0 L 16 8 L 0 16 z");
+
+for (let i = 1; i <= 5; ++i) {
+  /* ECache */
+  ecache_dom[i] =
+  lidoGraph.append ("path")
+	   .attr ("d", ecache_path)
+	   .attr ("fill", "none")
+	   .attr ("stroke", "black")
+	   .attr ("stroke-width", 1)
+	   .attr ("stroke-dasharray", "7 5")
+	   .attr ("transform", "translate(260," + String (70 + 100 * i) + ")");
+
+  ecache_text[i] =
+  lidoGraph.append ("text")
+	   .attr ("x", 350)
+	   .attr ("y", 100 + 100 * i)
+	   .attr ("text-anchor", "middle")
+	   .attr ("dominant-baseline", "middle")
+	   .text ("Not created yet");
+
+  ecache_arrow[i] = null;
+
+  /* MCache */
+  mcache_dom[i] =
+  lidoGraph.append ("ellipse")
+	   .attr ("rx", 90)
+	   .attr ("ry", 30)
+	   .attr ("cx", 650)
+	   .attr ("cy", 100 + 100 * i)
+	   .attr ("fill", "none")
+	   .attr ("stroke", "black")
+	   .attr ("stroke-width", 1)
+	   .attr ("stroke-dasharray", "7 5");
+
+  mcache_text[i] =
+  lidoGraph.append ("text")
+	   .attr ("x", 650)
+	   .attr ("y", 100 + 100 * i)
+	   .attr ("text-anchor", "middle")
+	   .attr ("dominant-baseline", "middle")
+	   .text ("Not created yet");
+
+  mcache_arrow[i] = null;
+
+  /* CCache */
+  ccache_dom[i] =
+  lidoGraph.append ("path")
+	   .attr ("d", ccache_path)
+	   .attr ("fill", "none")
+	   .attr ("stroke", "black")
+	   .attr ("stroke-width", 1)
+	   .attr ("stroke-dasharray", "7 5")
+	   .attr ("transform", "translate(860," + String (70 + 100 * i) + ")");
+
+  ccache_text[i] =
+  lidoGraph.append ("text")
+	   .attr ("x", 950)
+	   .attr ("y", 100 + 100 * i)
+	   .attr ("text-anchor", "middle")
+	   .attr ("dominant-baseline", "middle")
+	   .text ("Not created yet");
+
+  ccache_arrow[i] = null;
+}
+
+function addECache (r, pr) {
+  if (r <= 0 || r > 5) return;
+  ecache_dom[r].attr ("stroke-dasharray", null);
+  ecache_text[r].text ("Parent Round = " + String (pr));
+
+  /* Arrow */
+  if (ecache_arrow[r] === null) {
+    if (pr === 0) {
+      ecache_arrow[r] = lidoGraph.append ("path")
+	    .attr ("d", "M 260 " + String (100 + r * 100) + " L " + String (150 + r * 10) + " " + String (100 + r * 100) + " L " + String (150 + r * 10) + " 70")
+	    .attr ("fill", "none")
+	    .attr ("stroke", "black")
+	    .attr ("stroke-width", 1)
+	    .attr ("marker-end", "url(#arrow)");
+    } else {
+      ecache_arrow[r] = lidoGraph.append ("path")
+	    .attr ("d", "M 260 " + String (100 + r * 100) + " L " + String (150 + r * 10) + " " + String (100 + r * 100) + " L " + String (150 + r * 10) + " " + String (150 + pr * 100) + " L 650 " + String (150 + pr * 100) + " L 650 " + String (130 + pr * 100))
+	    .attr ("fill", "none")
+	    .attr ("stroke", "black")
+	    .attr ("stroke-width", 1)
+	    .attr ("marker-end", "url(#arrow)");
+    }
+  }
+}
+
+function addMCache (r, m) {
+  if (r <= 0 || r > 5) return;
+  mcache_dom[r].attr ("stroke-dasharray", null);
+  mcache_text[r].text ("Req Method = " + String (m));
+
+  /* Arrow */
+  if (mcache_arrow[r] === null) {
+    mcache_arrow[r] = lidoGraph.append ("path")
+	  .attr ("d", "M 560 " + String (100 + r * 100) + " L 440 " + String (100 + r * 100))
+	  .attr ("stroke", "black")
+	  .attr ("stroke-width", 1)
+	  .attr ("marker-end", "url(#arrow)");
+  }
+}
+
+function addCCache (r) {
+  if (r <= 0 || r > 5) return;
+  ccache_dom[r].attr ("stroke-dasharray", null);
+  ccache_text[r].text ("Committed");
+
+  if (ccache_arrow[r] === null) {
+    ccache_arrow[r] = lidoGraph.append ("path")
+	  .attr ("d", "M 860 " + String (100 + r * 100) + " L 740 " + String (100 + r * 100))
+	  .attr ("stroke", "black")
+	  .attr ("stroke-width", 1)
+	  .attr ("marker-end", "url(#arrow)");
+  }
+}
